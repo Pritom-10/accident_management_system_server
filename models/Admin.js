@@ -1,8 +1,6 @@
 const mongoose = require('mongoose');
 
-/**
- * 3.1 - single Administrator role, no Super Admin / Moderator tiers.
- */
+
 const adminSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },

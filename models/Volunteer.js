@@ -1,8 +1,6 @@
 const mongoose = require('mongoose');
 
-/**
- * 2.1 - 2.11: Volunteer account. Login is only usable once approvalStatus = 'approved'.
- */
+
 const volunteerSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
@@ -17,7 +15,7 @@ const volunteerSchema = new mongoose.Schema(
       district: { type: String, required: true },
       area: { type: String },
     },
-
+    
     profilePhotoUrl: { type: String },
 
     availability: { type: String, enum: ['available', 'unavailable'], default: 'unavailable' },
