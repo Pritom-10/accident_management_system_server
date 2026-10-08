@@ -7,6 +7,7 @@ const accidentRoutes = require('./routes/accidents');
 const hospitalRoutes = require('./routes/hospitals');
 const missingPersonRoutes = require('./routes/missingPersons');
 const subscriberRoutes = require('./routes/subscribers');
+const uploadRoutes = require('./routes/upload');
 
 const app = express();
 app.use(express.json());
@@ -19,6 +20,7 @@ app.use('/api/accidents', accidentRoutes);
 app.use('/api/hospitals', hospitalRoutes);
 app.use('/api/missing-persons', missingPersonRoutes);
 app.use('/api/subscribers', subscriberRoutes);
+app.use('/api', uploadRoutes); // gives /api/upload and /api/images/:id
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
