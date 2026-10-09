@@ -1,9 +1,10 @@
 const express = require('express');
+const mongoose = require('mongoose');
 const multer = require('multer');
 const router = express.Router();
 const Image = require('../models/Image');
 
-// Keep the file in memory (not on disk), then save it to MongoDB
+
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 }, // 5 MB max
@@ -13,7 +14,6 @@ const upload = multer({
   },
 });
 
-// POST /api/upload  (form field name must be "image") -> returns { url }
 router.post('/upload', (req, res) => {
   upload.single('image')(req, res, async (err) => {
     if (err) return res.status(400).json({ error: err.message });
@@ -25,21 +25,24 @@ router.post('/upload', (req, res) => {
         contentType: req.file.mimetype,
         size: req.file.size,
       });
-      const url = `${req.protocol}://${req.get('host')}/api/images/${img._id}`;
-      res.status(201).json({ url });
+      res.status(201).json({ id: img._id, url: `/api/images/${img._id}` });
     } catch (e) {
       res.status(500).json({ error: e.message });
     }
   });
 });
 
-// GET /api/images/:id -> sends the picture itself (so <img src="..."> works)
 router.get('/images/:id', async (req, res) => {
   try {
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(404).send('Not found');
+    }
     const img = await Image.findById(req.params.id);
     if (!img) return res.status(404).send('Not found');
+
     res.set('Content-Type', img.contentType);
     res.set('Cache-Control', 'public, max-age=31536000, immutable');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin'); 
     res.send(img.data);
   } catch {
     res.status(404).send('Not found');
