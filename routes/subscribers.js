@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const Subscriber = require('../models/Subscriber');
 
-// POST subscribe to district notifications (1.11)
+
 router.post('/', async (req, res) => {
   try {
     const { email, division, district } = req.body;
@@ -13,7 +13,7 @@ router.post('/', async (req, res) => {
 
     const existing = await Subscriber.findOne({ email: email.toLowerCase(), division, district });
     if (existing) {
-      existing.isActive = true; // re-subscribe if they had unsubscribed
+      existing.isActive = true; 
       await existing.save();
       return res.json({ ok: true });
     }

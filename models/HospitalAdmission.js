@@ -6,7 +6,7 @@ const hospitalAdmissionSchema = new mongoose.Schema(
     caseId: { type: String },           
     patientCount: { type: Number, required: true, min: 1 },
     note: { type: String },
-    reportedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Volunteer' }, // fill in once volunteer login exists
+    reportedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Volunteer' },
     status: { type: String, enum: ['admitted', 'discharged'], default: 'admitted' },
     dischargedAt: { type: Date },
   },
