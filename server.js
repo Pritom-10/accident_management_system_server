@@ -9,6 +9,8 @@ if (!process.env.JWT_SECRET) {
 }
 
 const authRoutes = require('./routes/auth');
+const passwordRoutes = require('./routes/password'); 
+const profileRoutes = require('./routes/profile'); 
 const accidentRoutes = require('./routes/accidents');
 const hospitalRoutes = require('./routes/hospitals');
 const uploadRoutes = require('./routes/upload');
@@ -24,6 +26,8 @@ connectDB();
 app.get('/', (req, res) => res.send('Backend is running'));
 
 app.use('/api/auth', authRoutes);
+app.use('/api/auth', passwordRoutes);     
+app.use('/api/profile', profileRoutes); 
 app.use('/api/accidents', accidentRoutes);
 app.use('/api/hospitals', hospitalRoutes);
 app.use('/api', uploadRoutes);

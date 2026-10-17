@@ -43,14 +43,20 @@ const userSchema = new mongoose.Schema(
     },
 
     isBlocked: { type: Boolean, default: false },
+     reset: {
+      otpHash: { type: String },
+      expiresAt: { type: Date },
+      attempts: { type: Number, default: 0 },
+      requestedAt: { type: Date },
+    },
   },
   { timestamps: true }
 );
 
-// what is safe to send to the browser (no password hash)
 userSchema.methods.toPublic = function () {
   const obj = this.toObject();
   delete obj.passwordHash;
+  delete obj.reset;
   delete obj.__v;
   return obj;
 };
