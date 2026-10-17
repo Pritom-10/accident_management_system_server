@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const UnidentifiedPatient = require('../models/UnidentifiedPatient');
 const Hospital = require('../models/Hospital');
+const { requireAuth, requireRole } = require('../middleware/auth');
+
 
 router.get('/', async (req, res) => {
   try {
@@ -15,10 +17,9 @@ router.get('/', async (req, res) => {
 });
 
 
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, requireRole('volunteer', 'admin'), async (req, res) => {
   try {
-    
-    const { photoUrl, estimatedAge, admittingHospital, admissionDate, physicalDescription } = req.body;
+    const { photoUrl, estimatedAge, admittingHospital, admissionDate, physicalDescription } = req.body || {};
 
     if (!admittingHospital || !admissionDate || !physicalDescription || !physicalDescription.trim()) {
       return res.status(400).json({ error: 'hospital, admission date and description are required' });
@@ -33,6 +34,7 @@ router.post('/', async (req, res) => {
       admittingHospital,
       admissionDate,
       physicalDescription: physicalDescription.trim(),
+      reportedBy: req.user._id,
     });
 
     res.status(201).json({ ok: true, id: patient._id });

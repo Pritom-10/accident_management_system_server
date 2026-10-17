@@ -9,7 +9,7 @@ const unidentifiedPatientSchema = new mongoose.Schema(
     admissionDate: { type: Date, required: true },
     physicalDescription: { type: String, required: true },
 
-    reportedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Volunteer' }, 
+    reportedBy: { type: mongoose.Schema.Types.ObjectId, 	ref: 'User' }, 
 
     status: { type: String, enum: ['pending', 'verified', 'rejected'], default: 'pending' },
     verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },

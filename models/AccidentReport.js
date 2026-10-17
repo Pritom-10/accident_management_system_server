@@ -32,8 +32,8 @@ const accidentReportSchema = new mongoose.Schema(
 
 
     dispatch: {
-      notifiedVolunteers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Volunteer' }],
-      acceptedVolunteer: { type: mongoose.Schema.Types.ObjectId, ref: 'Volunteer', default: null },
+      notifiedVolunteers: [{ type: mongoose.Schema.Types.ObjectId, 	ref: 'User' }],
+      acceptedVolunteer: { type: mongoose.Schema.Types.ObjectId, 	ref: 'User', default: null },
       assistanceStatus: {
         type: String,
         enum: ['unassigned', 'accepted', 'on_the_way', 'completed', 'cannot_assist'],
