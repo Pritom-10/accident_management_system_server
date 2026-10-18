@@ -10,6 +10,7 @@ if (!process.env.JWT_SECRET) {
 }
 
 const authRoutes = require('./routes/auth');
+const newsRoutes = require('./routes/news');
 const adminRoutes = require('./routes/admin');
 const passwordRoutes = require('./routes/password'); 
 const profileRoutes = require('./routes/profile'); 
@@ -21,6 +22,7 @@ const unidentifiedPatientRoutes = require('./routes/unidentifiedPatients');
 const imageLinkRoutes = require('./routes/imageLink');
 
 const app = express();
+app.set('trust proxy', 1);
 app.use(express.json());
 app.use(cors());
 connectDB();
@@ -29,6 +31,7 @@ app.get('/', (req, res) => res.send('Backend is running'));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/news', newsRoutes);
 app.use('/api/auth', passwordRoutes);     
 app.use('/api/profile', profileRoutes); 
 app.use('/api/accidents', accidentRoutes);

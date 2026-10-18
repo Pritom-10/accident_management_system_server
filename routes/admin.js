@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const router = express.Router();
 
 const User = require('../models/User');
+const NewsPost = require('../models/NewsPost');
 const AccidentReport = require('../models/AccidentReport');
 const UnidentifiedPatient = require('../models/UnidentifiedPatient');
 const BlockedPhone = require('../models/BlockedPhone');
@@ -32,15 +33,16 @@ const ASSIGNABLE_ROLES = ['donor', 'volunteer', 'hospital', 'bloodbank', 'ngo', 
 
 
 router.get('/stats', wrap(async (req, res) => {
-  const [pendingReports, pendingVolunteers, pendingPatients, users] = await Promise.all([
+  const [pendingReports, flaggedReports, pendingVolunteers, pendingPatients, pendingNews, users] = await Promise.all([
     AccidentReport.countDocuments({ status: 'pending' }),
+    AccidentReport.countDocuments({ status: { $in: PUBLIC_STATUSES }, 'flags.0': { $exists: true } }),
     User.countDocuments({ 'volunteer.status': 'pending' }),
     UnidentifiedPatient.countDocuments({ status: 'pending' }),
+    NewsPost.countDocuments({ status: 'pending' }),
     User.countDocuments(),
   ]);
-  res.json({ pendingReports, pendingVolunteers, pendingPatients, users });
+  res.json({ pendingReports, flaggedReports, pendingVolunteers, pendingPatients, pendingNews, users });
 }));
-
 
 
 const REPORT_FILTERS = {
@@ -49,9 +51,61 @@ const REPORT_FILTERS = {
   rejected: ['rejected'],
 };
 
+router.get('/news', wrap(async (req, res) => {
+  const status = ['pending', 'published', 'rejected'].includes(req.query.status) ? req.query.status : 'pending';
+  const list = await NewsPost.find({ status }).sort({ createdAt: -1 }).limit(200);
+  res.json(list);
+}));
+
+
+router.patch('/news/:id/approve', wrap(async (req, res) => {
+  const post = await NewsPost.findById(req.params.id);
+  if (!post) return res.status(404).json({ error: 'Not found' });
+
+  post.status = 'published';
+  post.isVerified = req.body?.verified === true;
+  post.rejectionReason = undefined;
+  post.publishedAt = post.publishedAt || new Date();
+  await post.save();
+
+  await logAction(req.user, 'news.approve', 'NewsPost', post._id, `${post.title} (${post.isVerified ? 'verified' : 'unverified'})`);
+  res.json({ ok: true });
+}));
+
+
+router.patch('/news/:id/verify', wrap(async (req, res) => {
+  const verified = req.body?.verified === true;
+  const post = await NewsPost.findByIdAndUpdate(req.params.id, { isVerified: verified }, { new: true });
+  if (!post) return res.status(404).json({ error: 'Not found' });
+
+  await logAction(req.user, verified ? 'news.verify' : 'news.unverify', 'NewsPost', post._id, post.title);
+  res.json({ ok: true });
+}));
+
+
+router.patch('/news/:id/reject', wrap(async (req, res) => {
+  const post = await NewsPost.findById(req.params.id);
+  if (!post) return res.status(404).json({ error: 'Not found' });
+
+  post.status = 'rejected';
+  post.isVerified = false;
+  post.rejectionReason = str(req.body?.reason) || 'Not approved';
+  await post.save();
+
+  await logAction(req.user, 'news.reject', 'NewsPost', post._id, `${post.title}: ${post.rejectionReason}`);
+  res.json({ ok: true });
+}));
+
 router.get('/reports', wrap(async (req, res) => {
-  const statuses = REPORT_FILTERS[req.query.status] || REPORT_FILTERS.pending;
-  const reports = await AccidentReport.find({ status: { $in: statuses } })
+  let filter = { status: 'pending' };
+  if (req.query.status === 'verified') filter = { status: { $in: PUBLIC_STATUSES } };
+  else if (req.query.status === 'rejected') filter = { status: 'rejected' };
+  else if (req.query.status === 'flagged') {
+    filter = { status: { $in: PUBLIC_STATUSES }, 'flags.0': { $exists: true } };
+  }
+
+  const reports = await AccidentReport.find(filter)
+    .select('-flags.ipHash')
     .sort({ createdAt: -1 })
     .limit(200);
   res.json(reports);
@@ -64,8 +118,7 @@ router.patch('/reports/:id/status', wrap(async (req, res) => {
     return res.status(400).json({ error: 'Invalid status' });
   }
 
-  const report = await AccidentReport.findById(req.params.id);
-  if (!report) return res.status(404).json({ error: 'Not found' });
+
 
   const wasPublic = PUBLIC_STATUSES.includes(report.status);
   report.status = status;
@@ -114,7 +167,13 @@ router.patch('/reports/:id/reject', wrap(async (req, res) => {
   res.json({ ok: true, blocked });
 }));
 
+router.patch('/reports/:id/clear-flags', wrap(async (req, res) => {
+  const report = await AccidentReport.findByIdAndUpdate(req.params.id, { flags: [] }, { new: true });
+  if (!report) return res.status(404).json({ error: 'Not found' });
 
+  await logAction(req.user, 'report.clear-flags', 'AccidentReport', report.caseId);
+  res.json({ ok: true });
+}));
 
 router.get('/volunteers', wrap(async (req, res) => {
   const status = ['pending', 'approved', 'rejected'].includes(req.query.status) ? req.query.status : 'pending';
