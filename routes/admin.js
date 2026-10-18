@@ -6,6 +6,7 @@ const User = require('../models/User');
 const NewsPost = require('../models/NewsPost');
 const AccidentReport = require('../models/AccidentReport');
 const UnidentifiedPatient = require('../models/UnidentifiedPatient');
+const BloodRequest = require('../models/BloodRequest');
 const BlockedPhone = require('../models/BlockedPhone');
 const AuditLog = require('../models/AuditLog');
 const { requireAuth, requireRole } = require('../middleware/auth');
@@ -304,6 +305,35 @@ router.delete('/blocked-phones/:id', wrap(async (req, res) => {
   if (!item) return res.status(404).json({ error: 'Not found' });
 
   await logAction(req.user, 'phone.unblock', 'BlockedPhone', item.phone);
+  res.json({ ok: true });
+}));
+
+
+router.get('/blood', wrap(async (req, res) => {
+  const filter =
+    req.query.status === 'closed'
+      ? { status: { $in: ['completed', 'cancelled'] } }
+      : { status: { $in: ['pending', 'accepted'] } };
+  res.json(await BloodRequest.find(filter).sort({ createdAt: -1 }).limit(200));
+}));
+
+router.patch('/blood/:id/cancel', wrap(async (req, res) => {
+  const request = await BloodRequest.findById(req.params.id);
+  if (!request) return res.status(404).json({ error: 'Not found' });
+
+  request.status = 'cancelled';
+  request.cancelledReason = str(req.body?.reason, 200) || 'Removed by admin';
+  await request.save();
+
+  await logAction(req.user, 'blood.cancel', 'BloodRequest', request._id, `${request.bloodGroup} at ${request.hospital.name}: ${request.cancelledReason}`);
+  res.json({ ok: true });
+}));
+
+router.delete('/blood/:id', wrap(async (req, res) => {
+  const request = await BloodRequest.findByIdAndDelete(req.params.id);
+  if (!request) return res.status(404).json({ error: 'Not found' });
+
+  await logAction(req.user, 'blood.delete', 'BloodRequest', request._id, `${request.bloodGroup} at ${request.hospital.name}`);
   res.json({ ok: true });
 }));
 

@@ -13,12 +13,17 @@ async function loadUser(req) {
   }
 }
 
-
 async function requireAuth(req, res, next) {
   const user = await loadUser(req);
   if (!user) return res.status(401).json({ error: 'Please log in first' });
   if (user.isBlocked) return res.status(403).json({ error: 'This account is blocked' });
   req.user = user;
+  next();
+}
+
+async function optionalAuth(req, res, next) {
+  const user = await loadUser(req);
+  req.user = user && !user.isBlocked ? user : null;
   next();
 }
 
@@ -29,4 +34,4 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { requireAuth, requireRole };
+module.exports = { requireAuth, optionalAuth, requireRole };
