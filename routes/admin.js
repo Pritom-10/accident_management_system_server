@@ -4,6 +4,7 @@ const router = express.Router();
 
 const User = require('../models/User');
 const NewsPost = require('../models/NewsPost');
+const Campaign = require('../models/Campaign');
 const AccidentReport = require('../models/AccidentReport');
 const UnidentifiedPatient = require('../models/UnidentifiedPatient');
 const BloodRequest = require('../models/BloodRequest');
@@ -34,15 +35,35 @@ const ASSIGNABLE_ROLES = ['donor', 'volunteer', 'hospital', 'bloodbank', 'ngo', 
 
 
 router.get('/stats', wrap(async (req, res) => {
-  const [pendingReports, flaggedReports, pendingVolunteers, pendingPatients, pendingNews, users] = await Promise.all([
+  const [
+    pendingReports,
+    flaggedReports,
+    pendingVolunteers,
+    pendingPatients,
+    pendingNews,
+    pendingCampaigns,
+    flaggedCampaigns,
+    users,
+  ] = await Promise.all([
     AccidentReport.countDocuments({ status: 'pending' }),
     AccidentReport.countDocuments({ status: { $in: PUBLIC_STATUSES }, 'flags.0': { $exists: true } }),
     User.countDocuments({ 'volunteer.status': 'pending' }),
     UnidentifiedPatient.countDocuments({ status: 'pending' }),
     NewsPost.countDocuments({ status: 'pending' }),
+    Campaign.countDocuments({ status: 'pending' }),
+    Campaign.countDocuments({ status: { $in: ['active', 'completed'] }, 'flags.0': { $exists: true } }),
     User.countDocuments(),
   ]);
-  res.json({ pendingReports, flaggedReports, pendingVolunteers, pendingPatients, pendingNews, users });
+  res.json({
+    pendingReports,
+    flaggedReports,
+    pendingVolunteers,
+    pendingPatients,
+    pendingNews,
+    pendingCampaigns,
+    flaggedCampaigns,
+    users,
+  });
 }));
 
 
@@ -337,7 +358,53 @@ router.delete('/blood/:id', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+router.get('/campaigns', wrap(async (req, res) => {
+  let filter = { status: 'pending' };
+  if (req.query.status === 'active') filter = { status: { $in: ['active', 'completed'] } };
+  else if (req.query.status === 'flagged') {
+    filter = { status: { $in: ['active', 'completed'] }, 'flags.0': { $exists: true } };
+  } else if (req.query.status === 'closed') filter = { status: { $in: ['closed', 'rejected'] } };
 
+  res.json(await Campaign.find(filter).select('-flags.ipHash').sort({ createdAt: -1 }).limit(200));
+}));
+
+router.patch('/campaigns/:id/approve', wrap(async (req, res) => {
+  const campaign = await Campaign.findById(req.params.id);
+  if (!campaign) return res.status(404).json({ error: 'Not found' });
+  if (!['pending', 'rejected'].includes(campaign.status)) {
+    return res.status(400).json({ error: 'Only a waiting or rejected campaign can be approved' });
+  }
+
+  campaign.status = 'active';
+  campaign.isVerified = true;
+  campaign.verifiedAt = new Date();
+  campaign.rejectionReason = undefined;
+  await campaign.save();
+
+  await logAction(req.user, 'campaign.approve', 'Campaign', campaign._id, campaign.title);
+  res.json({ ok: true });
+}));
+
+router.patch('/campaigns/:id/reject', wrap(async (req, res) => {
+  const campaign = await Campaign.findById(req.params.id);
+  if (!campaign) return res.status(404).json({ error: 'Not found' });
+
+  campaign.status = 'rejected';
+  campaign.isVerified = false;
+  campaign.rejectionReason = str(req.body?.reason) || 'Not approved';
+  await campaign.save();
+
+  await logAction(req.user, 'campaign.reject', 'Campaign', campaign._id, `${campaign.title}: ${campaign.rejectionReason}`);
+  res.json({ ok: true });
+}));
+
+router.patch('/campaigns/:id/clear-flags', wrap(async (req, res) => {
+  const campaign = await Campaign.findByIdAndUpdate(req.params.id, { flags: [] }, { new: true });
+  if (!campaign) return res.status(404).json({ error: 'Not found' });
+
+  await logAction(req.user, 'campaign.clear-flags', 'Campaign', campaign._id, campaign.title);
+  res.json({ ok: true });
+}));
 
 router.get('/logs', wrap(async (req, res) => {
   res.json(await AuditLog.find().sort({ createdAt: -1 }).limit(100));

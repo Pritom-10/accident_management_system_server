@@ -12,6 +12,8 @@ if (!process.env.JWT_SECRET) {
 const authRoutes = require('./routes/auth');
 const newsRoutes = require('./routes/news');
 const adminRoutes = require('./routes/admin');
+const donateRoutes = require('./routes/donate');
+const privateImageRoutes = require('./routes/privateImages');
 const analyticsRoutes = require('./routes/analytics');
 const passwordRoutes = require('./routes/password'); 
 const profileRoutes = require('./routes/profile'); 
@@ -34,6 +36,8 @@ app.get('/', (req, res) => res.send('Backend is running'));
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/news', newsRoutes);
+app.use('/api/donate', donateRoutes);
+app.use('/api', privateImageRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/blood', bloodRoutes);
 app.use('/api/auth', passwordRoutes);     
