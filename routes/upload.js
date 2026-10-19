@@ -38,7 +38,7 @@ router.get('/images/:id', async (req, res) => {
       return res.status(404).send('Not found');
     }
     const img = await Image.findById(req.params.id);
-    if (!img) return res.status(404).send('Not found');
+    if (!img || img.isPrivate) return res.status(404).send('Not found');
 
     res.set('Content-Type', img.contentType);
     res.set('Cache-Control', 'public, max-age=31536000, immutable');
