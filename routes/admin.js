@@ -5,6 +5,8 @@ const router = express.Router();
 const User = require('../models/User');
 const NewsPost = require('../models/NewsPost');
 const Campaign = require('../models/Campaign');
+const SosAlert = require('../models/SosAlert');
+const { activeSince } = require('../utils/sos');
 const AccidentReport = require('../models/AccidentReport');
 const UnidentifiedPatient = require('../models/UnidentifiedPatient');
 const BloodRequest = require('../models/BloodRequest');
@@ -43,6 +45,7 @@ router.get('/stats', wrap(async (req, res) => {
     pendingNews,
     pendingCampaigns,
     flaggedCampaigns,
+    activeSos,
     users,
   ] = await Promise.all([
     AccidentReport.countDocuments({ status: 'pending' }),
@@ -52,6 +55,7 @@ router.get('/stats', wrap(async (req, res) => {
     NewsPost.countDocuments({ status: 'pending' }),
     Campaign.countDocuments({ status: 'pending' }),
     Campaign.countDocuments({ status: { $in: ['active', 'completed'] }, 'flags.0': { $exists: true } }),
+    SosAlert.countDocuments({ status: 'active', createdAt: { $gte: activeSince() } }),
     User.countDocuments(),
   ]);
   res.json({
@@ -62,6 +66,7 @@ router.get('/stats', wrap(async (req, res) => {
     pendingNews,
     pendingCampaigns,
     flaggedCampaigns,
+    activeSos,
     users,
   });
 }));
@@ -404,6 +409,49 @@ router.patch('/campaigns/:id/clear-flags', wrap(async (req, res) => {
 
   await logAction(req.user, 'campaign.clear-flags', 'Campaign', campaign._id, campaign.title);
   res.json({ ok: true });
+}));
+
+router.get('/sos', wrap(async (req, res) => {
+  const filter = req.query.status === 'closed' ? { status: { $ne: 'active' } } : { status: 'active' };
+  const list = await SosAlert.find(filter).select('-ipHash').sort({ createdAt: -1 }).limit(100);
+  res.json(list);
+}));
+
+router.patch('/sos/:id/resolve', wrap(async (req, res) => {
+  const alert = await SosAlert.findById(req.params.id);
+  if (!alert) return res.status(404).json({ error: 'Not found' });
+
+  alert.status = 'resolved';
+  alert.resolvedAt = new Date();
+  await alert.save();
+
+  await logAction(req.user, 'sos.resolve', 'SosAlert', alert._id, [alert.location?.area, alert.location?.district].filter(Boolean).join(', '));
+  res.json({ ok: true });
+}));
+
+router.patch('/sos/:id/false-alarm', wrap(async (req, res) => {
+  const alert = await SosAlert.findById(req.params.id);
+  if (!alert) return res.status(404).json({ error: 'Not found' });
+
+  alert.status = 'false_alarm';
+  alert.resolvedAt = new Date();
+  await alert.save();
+
+  let blocked = false;
+  if (req.body?.blockPhone === true && alert.callerPhone) {
+    const key = phoneKey(alert.callerPhone);
+    if (key) {
+      await BlockedPhone.updateOne(
+        { phone: key },
+        { $setOnInsert: { reason: 'False SOS alert', blockedBy: req.user._id } },
+        { upsert: true }
+      );
+      blocked = true;
+    }
+  }
+
+  await logAction(req.user, 'sos.false-alarm', 'SosAlert', alert._id, blocked ? 'number blocked' : '');
+  res.json({ ok: true, blocked });
 }));
 
 router.get('/logs', wrap(async (req, res) => {

@@ -12,6 +12,7 @@ if (!process.env.JWT_SECRET) {
 const authRoutes = require('./routes/auth');
 const newsRoutes = require('./routes/news');
 const adminRoutes = require('./routes/admin');
+const sosRoutes = require('./routes/sos');
 const donateRoutes = require('./routes/donate');
 const privateImageRoutes = require('./routes/privateImages');
 const analyticsRoutes = require('./routes/analytics');
@@ -37,6 +38,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/donate', donateRoutes);
+app.use('/api/sos', sosRoutes);
 app.use('/api', privateImageRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/blood', bloodRoutes);
