@@ -27,7 +27,7 @@ router.post('/forgot-password', async (req, res) => {
       const tooSoon = last && Date.now() - new Date(last).getTime() < RESEND_SECONDS * 1000;
 
       if (!tooSoon) {
-        const otp = String(crypto.randomInt(100000, 1000000)); // 6 digits
+        const otp = String(crypto.randomInt(100000, 1000000)); 
         user.reset = {
           otpHash: await bcrypt.hash(otp, 8),
           expiresAt: new Date(Date.now() + OTP_MINUTES * 60 * 1000),
@@ -38,9 +38,9 @@ router.post('/forgot-password', async (req, res) => {
 
         await sendMail({
           to: email,
-          subject: 'Your Sahayota password reset code',
+          subject: 'Your ResQ password reset code',
           text: `Your code is ${otp}\n\nIt works for ${OTP_MINUTES} minutes. If you did not ask for this, ignore this email.`,
-          html: `<p>Your Sahayota password reset code is:</p>
+          html: `<p>Your ResQ password reset code is:</p>
                  <p style="font-size:28px;font-weight:700;letter-spacing:6px">${otp}</p>
                  <p>It works for ${OTP_MINUTES} minutes. If you did not ask for this, ignore this email.</p>`,
         });

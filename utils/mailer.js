@@ -29,7 +29,7 @@ async function sendMail({ to, bcc, subject, text, html }) {
   }
 
   await getTransporter().sendMail({
-    from: `"Sahayota" <${process.env.EMAIL_USER}>`,
+    from: `"ResQ" <${process.env.EMAIL_USER}>`,
     to: to || process.env.EMAIL_USER,
     bcc,
     subject,
