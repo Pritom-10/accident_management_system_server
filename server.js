@@ -12,6 +12,7 @@ if (!process.env.JWT_SECRET) {
 const authRoutes = require('./routes/auth');
 const newsRoutes = require('./routes/news');
 const adminRoutes = require('./routes/admin');
+const adminAnalyticsRoutes = require('./routes/adminAnalytics');
 const sosRoutes = require('./routes/sos');
 const notificationRoutes = require('./routes/notifications');
 const donateRoutes = require('./routes/donate');
@@ -37,6 +38,7 @@ app.get('/', (req, res) => res.send('Backend is running'));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/admin/analytics', adminAnalyticsRoutes);
 app.use('/api/news', newsRoutes);
 app.use('/api/donate', donateRoutes);
 app.use('/api/sos', sosRoutes);
