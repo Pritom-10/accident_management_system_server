@@ -7,6 +7,8 @@ const NewsPost = require('../models/NewsPost');
 const Campaign = require('../models/Campaign');
 const SosAlert = require('../models/SosAlert');
 const { activeSince } = require('../utils/sos');
+const { withTimeout } = require('../utils/push');
+const { pushNews } = require('../utils/pushNotify');
 const AccidentReport = require('../models/AccidentReport');
 const UnidentifiedPatient = require('../models/UnidentifiedPatient');
 const BloodRequest = require('../models/BloodRequest');
@@ -96,7 +98,27 @@ router.patch('/news/:id/approve', wrap(async (req, res) => {
   await post.save();
 
   await logAction(req.user, 'news.approve', 'NewsPost', post._id, `${post.title} (${post.isVerified ? 'verified' : 'unverified'})`);
-  res.json({ ok: true });
+
+  let alerted = 0;
+  if (req.body?.breaking === true) {
+    try {
+      alerted = await withTimeout(pushNews(post), 4000);
+    } catch (err) {
+      console.error('news push failed:', err.message);
+    }
+  }
+
+  res.json({ ok: true, alerted });
+}));
+
+router.post('/news/:id/alert', wrap(async (req, res) => {
+  const post = await NewsPost.findById(req.params.id);
+  if (!post || post.status !== 'published') return res.status(404).json({ error: 'Only a published post can be sent as an alert' });
+  if (post.pushedAt) return res.status(400).json({ error: 'An alert was already sent for this post' });
+
+  const alerted = await withTimeout(pushNews(post), 4000);
+  await logAction(req.user, 'news.alert', 'NewsPost', post._id, post.title);
+  res.json({ ok: true, alerted });
 }));
 
 

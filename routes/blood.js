@@ -4,6 +4,8 @@ const router = express.Router();
 
 const User = require('../models/User');
 const BloodRequest = require('../models/BloodRequest');
+const { withTimeout } = require('../utils/push');
+const { pushBlood, pushOffer } = require('../utils/pushNotify');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
 const { normalizeBdNumber } = require('../utils/phone');
 const {
@@ -181,14 +183,14 @@ router.post('/requests', requireAuth, wrap(async (req, res) => {
     note: str(b.note, 300),
   });
 
-  let emailed = 0;
-  try {
-    emailed = await notifyDonorsByEmail(request);
-  } catch (err) {
-    console.error('blood email failed:', err.message);
-  }
+   const [mail, push] = await Promise.allSettled([
+    withTimeout(notifyDonorsByEmail(request), 4000),
+    withTimeout(pushBlood(request), 4000),
+  ]);
+  const emailed = mail.status === 'fulfilled' ? mail.value || 0 : 0;
+  const pushed = push.status === 'fulfilled' ? push.value || 0 : 0;
 
-  res.status(201).json({ id: request._id, emailed });
+  res.status(201).json({ id: request._id, emailed, pushed });
 }));
 
 router.patch('/requests/:id/cancel', requireAuth, wrap(async (req, res) => {
@@ -247,11 +249,10 @@ router.post('/requests/:id/offer', requireAuth, wrap(async (req, res) => {
   request.refreshStatus();
   await request.save();
 
-  try {
-    await notifyRequesterOfOffer(request, user);
-  } catch (err) {
-    console.error('offer email failed:', err.message);
-  }
+   await Promise.allSettled([
+    withTimeout(notifyRequesterOfOffer(request, user), 4000),
+    withTimeout(pushOffer(request, user), 4000),
+  ]);
 
   res.json({ ok: true, status: request.status });
 }));

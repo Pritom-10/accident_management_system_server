@@ -5,6 +5,8 @@ const router = express.Router();
 
 const SosAlert = require('../models/SosAlert');
 const BlockedPhone = require('../models/BlockedPhone');
+const { withTimeout } = require('../utils/push');
+const { pushSos } = require('../utils/pushNotify');
 const { requireAuth, optionalAuth, requireRole } = require('../middleware/auth');
 const { normalizeBdNumber } = require('../utils/phone');
 const { ipHash } = require('../utils/money');
@@ -82,17 +84,14 @@ router.post('/', optionalAuth, wrap(async (req, res) => {
     ipHash: hash,
   });
 
-  let emailed = 0;
-  try {
-    emailed = await Promise.race([
-      notifyVolunteersByEmail(alert),
-      new Promise((resolve) => setTimeout(() => resolve(0), 4000)),
-    ]);
-  } catch (err) {
-    console.error('sos email failed:', err.message);
-  }
+   const [mail, push] = await Promise.allSettled([
+    withTimeout(notifyVolunteersByEmail(alert), 4000),
+    withTimeout(pushSos(alert), 4000),
+  ]);
+  const emailed = mail.status === 'fulfilled' ? mail.value || 0 : 0;
+  const pushed = push.status === 'fulfilled' ? push.value || 0 : 0;
 
-  res.status(201).json({ token: alert.token, status: alert.status, emailed });
+  res.status(201).json({ token: alert.token, status: alert.status, emailed, pushed });
 }));
 
 router.get('/status/:token', wrap(async (req, res) => {

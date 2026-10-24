@@ -4,6 +4,8 @@ const router = express.Router();
 
 const NewsPost = require('../models/NewsPost');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { withTimeout } = require('../utils/push');
+const { pushNews } = require('../utils/pushNotify');
 const { VEHICLES } = require('../utils/newsOptions');
 const { logAction } = require('../utils/audit');
 
@@ -193,7 +195,16 @@ router.post('/', requireAuth, requireRole(...WRITERS), async (req, res) => {
       publishedAt: admin ? new Date() : undefined,
     });
 
-    res.status(201).json({ id: post._id, status: post.status });
+        let alerted = 0;
+    if (admin && req.body && req.body.breaking === true) {
+      try {
+        alerted = await withTimeout(pushNews(post), 4000);
+      } catch (err) {
+        console.error('news push failed:', err.message);
+      }
+    }
+
+    res.status(201).json({ id: post._id, status: post.status, alerted });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

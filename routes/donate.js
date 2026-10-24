@@ -4,6 +4,8 @@ const router = express.Router();
 
 const Campaign = require('../models/Campaign');
 const Donation = require('../models/Donation');
+const { withTimeout } = require('../utils/push');
+const { pushDonationConfirmed, pushExpenseAdded } = require('../utils/pushNotify');
 const Expense = require('../models/Expense');
 const Image = require('../models/Image');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
@@ -426,6 +428,12 @@ router.patch('/donations/:donationId/confirm', requireAuth, wrap(async (req, res
     console.error('receipt email failed:', err.message);
   }
 
+    try {
+    await withTimeout(pushDonationConfirmed(updated || campaign, donation), 3000);
+  } catch (err) {
+    console.error('donation push failed:', err.message);
+  }
+
   res.json({ ok: true, raised: updated ? updated.raised : undefined, status: updated ? updated.status : undefined });
 }));
 
@@ -485,6 +493,12 @@ router.post('/campaigns/:id/expenses', requireAuth, wrap(async (req, res) => {
     addedBy: req.user._id,
   });
   await recompute(campaign._id);
+
+    try {
+    await withTimeout(pushExpenseAdded(campaign, expense), 3000);
+  } catch (err) {
+    console.error('expense push failed:', err.message);
+  }
 
   res.status(201).json({ id: expense._id });
 }));

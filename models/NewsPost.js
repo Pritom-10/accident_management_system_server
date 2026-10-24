@@ -30,6 +30,7 @@ const newsPostSchema = new mongoose.Schema(
     isVerified: { type: Boolean, default: false }, 
     rejectionReason: { type: String },
     publishedAt: { type: Date },
+    pushedAt: { type: Date },
 
     author: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
     authorName: { type: String },
