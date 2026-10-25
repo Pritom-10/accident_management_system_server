@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const User = require('../models/User');
 const { sendMail } = require('../utils/mailer');
+const { checkPassword } = require('../utils/password');
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const OTP_MINUTES = 10; 
@@ -67,9 +68,8 @@ router.post('/reset-password', async (req, res) => {
     if (!EMAIL_RE.test(email) || typeof otp !== 'string' || !/^\d{6}$/.test(otp.trim())) {
       return res.status(400).json(bad);
     }
-    if (typeof newPassword !== 'string' || newPassword.length < 8) {
-      return res.status(400).json({ error: 'Password must be at least 8 characters' });
-    }
+    const weak = checkPassword(newPassword, { email });
+    if (weak) return res.status(400).json({ error: weak });
 
     const user = await User.findOne({ email });
     const r = user?.reset;
@@ -86,7 +86,10 @@ router.post('/reset-password', async (req, res) => {
     }
 
     user.passwordHash = await bcrypt.hash(newPassword, 10);
-    user.reset = undefined; 
+    user.reset = undefined;
+    user.security.tokenVersion = (user.security.tokenVersion || 0) + 1;
+    user.security.failedLogins = 0;
+    user.security.lockUntil = undefined;
     await user.save();
 
     res.json({ ok: true });

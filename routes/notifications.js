@@ -4,7 +4,7 @@ const router = express.Router();
 const PushSubscription = require('../models/PushSubscription');
 const { requireAuth, optionalAuth } = require('../middleware/auth');
 const { ipHash } = require('../utils/money');
-const { configured, deliver } = require('../utils/push');
+const { configured, deliver, publicKey } = require('../utils/push');
 
 const ENDPOINT_RE =
   /^https:\/\/([a-z0-9-]+\.)*(fcm\.googleapis\.com|android\.googleapis\.com|push\.services\.mozilla\.com|notify\.windows\.com|push\.apple\.com)\//i;
@@ -45,7 +45,7 @@ const view = (sub) => ({
 });
 
 router.get('/public-key', (req, res) => {
-  res.json({ key: configured() ? process.env.VAPID_PUBLIC_KEY : null });
+  res.json({ key: configured() ? publicKey() : null });
 });
 
 router.post('/subscribe', optionalAuth, wrap(async (req, res) => {

@@ -55,6 +55,13 @@ const userSchema = new mongoose.Schema(
     },
 
     isBlocked: { type: Boolean, default: false },
+    deletedAt: { type: Date },
+
+    security: {
+      tokenVersion: { type: Number, default: 0 },
+      failedLogins: { type: Number, default: 0 },
+      lockUntil: { type: Date },
+    },
      reset: {
       otpHash: { type: String },
       expiresAt: { type: Date },
@@ -69,6 +76,7 @@ userSchema.methods.toPublic = function () {
   const obj = this.toObject();
   delete obj.passwordHash;
   delete obj.reset;
+  delete obj.security;
   delete obj.__v;
   return obj;
 };

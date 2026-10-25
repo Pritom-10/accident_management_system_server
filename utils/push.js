@@ -4,21 +4,28 @@ const PushSubscription = require('../models/PushSubscription');
 const MAX_DEVICES = 300;
 let state = null;
 
+const clean = (v) => String(v || '').trim().replace(/^['"]|['"]$/g, '');
+const publicKey = () => clean(process.env.VAPID_PUBLIC_KEY);
+
 function configured() {
   if (state !== null) return state;
 
-  const publicKey = process.env.VAPID_PUBLIC_KEY;
-  const privateKey = process.env.VAPID_PRIVATE_KEY;
-  if (!publicKey || !privateKey) {
+  const pub = publicKey();
+  const priv = clean(process.env.VAPID_PRIVATE_KEY);
+  let subject = clean(process.env.VAPID_SUBJECT) || 'mailto:admin@example.com';
+  if (!/^(mailto:|https:\/\/)/i.test(subject)) subject = `mailto:${subject}`;
+
+  if (!pub || !priv) {
+    console.error(`push is off: ${!pub ? 'VAPID_PUBLIC_KEY' : 'VAPID_PRIVATE_KEY'} is missing`);
     state = false;
     return state;
   }
 
   try {
-    webpush.setVapidDetails(process.env.VAPID_SUBJECT || 'mailto:admin@example.com', publicKey, privateKey);
+    webpush.setVapidDetails(subject, pub, priv);
     state = true;
   } catch (err) {
-    console.error('push is not set up correctly:', err.message);
+    console.error('push is off, the keys are not valid:', err.message);
     state = false;
   }
   return state;
@@ -73,4 +80,4 @@ async function pushToNewsFollowers(district, payload, options) {
   return deliver(subs, payload, options);
 }
 
-module.exports = { configured, withTimeout, deliver, pushToUsers, pushToNewsFollowers };
+module.exports = { configured, publicKey, withTimeout, deliver, pushToUsers, pushToNewsFollowers };

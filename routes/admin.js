@@ -227,7 +227,7 @@ router.patch('/reports/:id/clear-flags', wrap(async (req, res) => {
 router.get('/volunteers', wrap(async (req, res) => {
   const status = ['pending', 'approved', 'rejected'].includes(req.query.status) ? req.query.status : 'pending';
   const list = await User.find({ 'volunteer.status': status })
-    .select('-passwordHash -reset')
+    .select('-passwordHash -reset -security')
     .sort({ updatedAt: -1 })
     .limit(200);
   res.json(list);
@@ -305,7 +305,7 @@ router.get('/users', wrap(async (req, res) => {
     const re = new RegExp(escapeRegex(q), 'i');
     filter.$or = [{ name: re }, { email: re }, { phone: re }];
   }
-  const users = await User.find(filter).select('-passwordHash -reset').sort({ createdAt: -1 }).limit(50);
+  const users = await User.find(filter).select('-passwordHash -reset -security').sort({ createdAt: -1 }).limit(50);
   res.json(users);
 }));
 
