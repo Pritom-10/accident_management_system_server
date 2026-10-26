@@ -15,6 +15,7 @@ const { normalizeBdNumber } = require('../utils/phone');
 const { signToken } = require('../utils/token');
 const { checkPassword } = require('../utils/password');
 const { BLOOD_GROUPS } = require('../utils/blood');
+const NewsComment = require('../models/NewsComment');
 
 const str = (v, max = 100) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 
@@ -137,6 +138,7 @@ router.delete('/', async (req, res) => {
       ),
       SosAlert.updateMany({ caller: u._id }, { $unset: { callerName: 1, callerPhone: 1 } }),
       NewsPost.updateMany({ author: u._id }, { $set: { authorName: 'Former writer' } }),
+      NewsComment.updateMany({ author: u._id }, { $set: { authorName: 'Deleted user', status: 'removed' } }),
     ]);
 
     const randomHash = await bcrypt.hash(crypto.randomBytes(24).toString('hex'), 10);

@@ -17,6 +17,10 @@ const AuditLog = require('../models/AuditLog');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { normalizeBdNumber } = require('../utils/phone');
 const { logAction } = require('../utils/audit');
+const NewsComment = require('../models/NewsComment');
+const NewsReaction = require('../models/NewsReaction');
+const { findSimilar } = require('../utils/newsSimilarity');
+const { applyCounts } = require('../utils/newsUpdates');
 
 
 router.use(requireAuth, requireRole('admin'));
@@ -44,10 +48,12 @@ router.get('/stats', wrap(async (req, res) => {
     flaggedReports,
     pendingVolunteers,
     pendingPatients,
-    pendingNews,
+    newsPosts,
+    newsUpdates,
     pendingCampaigns,
     flaggedCampaigns,
     activeSos,
+    reportedComments,
     users,
   ] = await Promise.all([
     AccidentReport.countDocuments({ status: 'pending' }),
@@ -55,20 +61,24 @@ router.get('/stats', wrap(async (req, res) => {
     User.countDocuments({ 'volunteer.status': 'pending' }),
     UnidentifiedPatient.countDocuments({ status: 'pending' }),
     NewsPost.countDocuments({ status: 'pending' }),
+    NewsPost.countDocuments({ status: 'published', 'updates.approved': false }),
     Campaign.countDocuments({ status: 'pending' }),
     Campaign.countDocuments({ status: { $in: ['active', 'completed'] }, 'flags.0': { $exists: true } }),
     SosAlert.countDocuments({ status: 'active', createdAt: { $gte: activeSince() } }),
+    NewsComment.countDocuments({ status: { $in: ['visible', 'hidden'] }, reportCount: { $gt: 0 }, reviewedAt: null }),
     User.countDocuments(),
   ]);
+
   res.json({
     pendingReports,
     flaggedReports,
     pendingVolunteers,
     pendingPatients,
-    pendingNews,
+    pendingNews: newsPosts + newsUpdates,
     pendingCampaigns,
     flaggedCampaigns,
     activeSos,
+    reportedComments,
     users,
   });
 }));
@@ -81,9 +91,124 @@ const REPORT_FILTERS = {
 };
 
 router.get('/news', wrap(async (req, res) => {
-  const status = ['pending', 'published', 'rejected'].includes(req.query.status) ? req.query.status : 'pending';
-  const list = await NewsPost.find({ status }).sort({ createdAt: -1 }).limit(200);
+  const wanted = req.query.status;
+  const filter =
+    wanted === 'updates'
+      ? { status: 'published', 'updates.approved': false }
+      : { status: ['pending', 'published', 'rejected'].includes(wanted) ? wanted : 'pending' };
+
+  const list = await NewsPost.find(filter).sort({ createdAt: -1 }).limit(200).lean();
+
+  if (wanted !== 'updates' && ['pending', 'published'].includes(filter.status) && list.length > 0) {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    const times = list.map((p) => new Date(p.occurredAt).getTime()).filter(Number.isFinite);
+
+    if (times.length > 0) {
+      const pool = await NewsPost.find({
+        status: { $in: ['pending', 'published'] },
+        occurredAt: { $gte: new Date(Math.min(...times) - DAY_MS), $lte: new Date(Math.max(...times) + DAY_MS) },
+      })
+        .select('title status occurredAt road location')
+        .limit(1000)
+        .lean();
+
+      list.forEach((p) => {
+        p.similar = findSimilar(p, pool);
+      });
+    }
+  }
+
   res.json(list);
+}));
+
+router.post('/news/:id/merge', wrap(async (req, res) => {
+  const dupId = req.body && req.body.duplicateId;
+  if (!mongoose.isValidObjectId(dupId) || String(dupId) === req.params.id) {
+    return res.status(400).json({ error: 'Choose a different story to merge' });
+  }
+
+  const [primary, dup] = await Promise.all([NewsPost.findById(req.params.id), NewsPost.findById(dupId)]);
+  if (!primary || !dup) return res.status(404).json({ error: 'Not found' });
+  if (['merged', 'rejected'].includes(primary.status) || ['merged'].includes(dup.status)) {
+    return res.status(400).json({ error: 'These stories cannot be merged' });
+  }
+  if (dup.status === 'published' && primary.status !== 'published') {
+    return res.status(400).json({ error: 'Keep the published story and merge the waiting one into it instead' });
+  }
+
+  primary.photos = [...new Set([...primary.photos, ...dup.photos])].slice(0, 4);
+  primary.deaths = Math.max(primary.deaths || 0, dup.deaths || 0);
+  primary.injured = Math.max(primary.injured || 0, dup.injured || 0);
+  primary.vehicleTypes = [...new Set([...primary.vehicleTypes, ...dup.vehicleTypes])];
+  if (!primary.road && dup.road) primary.road = dup.road;
+  if (!primary.videoUrl && dup.videoUrl) primary.videoUrl = dup.videoUrl;
+
+  const seen = new Set([`${primary.sourceName || ''}|${primary.sourceUrl || ''}`]);
+  const sources = [...(primary.extraSources || [])];
+  sources.forEach((s) => seen.add(`${s.name || ''}|${s.url || ''}`));
+
+  const addSource = (name, url) => {
+    if (!name && !url) return;
+    const key = `${name || ''}|${url || ''}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    sources.push({ name, url });
+  };
+  addSource(dup.sourceName, dup.sourceUrl);
+  (dup.extraSources || []).forEach((s) => addSource(s.name, s.url));
+  primary.extraSources = sources.slice(0, 8);
+
+  (dup.updates || []).forEach((u) => {
+    primary.updates.push({
+      kind: u.kind,
+      text: u.text,
+      at: u.at,
+      deaths: u.deaths,
+      injured: u.injured,
+      approved: u.approved,
+      author: u.author,
+      authorName: u.authorName,
+    });
+  });
+  primary.refreshUpdates();
+
+  if (!primary.pushedAt && dup.pushedAt) primary.pushedAt = dup.pushedAt;
+
+  dup.status = 'merged';
+  dup.mergedInto = primary._id;
+  dup.isVerified = false;
+
+  await primary.save();
+  await dup.save();
+
+  await NewsComment.updateMany({ news: dup._id }, { $set: { news: primary._id } });
+  const reactions = await NewsReaction.find({ post: dup._id }).lean();
+  for (const r of reactions) {
+    await NewsReaction.updateOne({ post: primary._id, user: r.user }, { $setOnInsert: { type: r.type } }, { upsert: true });
+  }
+  await NewsReaction.deleteMany({ post: dup._id });
+
+  await logAction(req.user, 'news.merge', 'NewsPost', primary._id, `"${dup.title}" merged into "${primary.title}"`);
+  res.json({ ok: true });
+}));
+
+router.patch('/news/:id/updates/:updateId/approve', wrap(async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.updateId)) return res.status(404).json({ error: 'Not found' });
+
+  const post = await NewsPost.findById(req.params.id);
+  if (!post) return res.status(404).json({ error: 'Not found' });
+
+  const update = post.updates.id(req.params.updateId);
+  if (!update) return res.status(404).json({ error: 'Not found' });
+  if (update.approved) return res.status(400).json({ error: 'This update is already live' });
+
+  update.approved = true;
+  applyCounts(post, update);
+  post.refreshUpdates();
+  await post.save();
+
+  await logAction(req.user, 'news.update-approve', 'NewsPost', post._id, post.title);
+  res.json({ ok: true });
 }));
 
 
@@ -474,6 +599,69 @@ router.patch('/sos/:id/false-alarm', wrap(async (req, res) => {
 
   await logAction(req.user, 'sos.false-alarm', 'SosAlert', alert._id, blocked ? 'number blocked' : '');
   res.json({ ok: true, blocked });
+}));
+
+router.get('/comments', wrap(async (req, res) => {
+  let filter;
+  if (req.query.status === 'hidden') filter = { status: 'hidden' };
+  else if (req.query.status === 'recent') filter = { status: 'visible' };
+  else filter = { status: { $in: ['visible', 'hidden'] }, reportCount: { $gt: 0 }, reviewedAt: null };
+
+  const rows = await NewsComment.find(filter)
+    .populate('news', 'title')
+    .sort({ reportCount: -1, createdAt: -1 })
+    .limit(100)
+    .lean();
+
+  res.json(
+    rows.map((c) => ({
+      _id: c._id,
+      author: c.author,
+      authorName: c.authorName,
+      text: c.text,
+      status: c.status,
+      reportCount: c.reportCount,
+      reasons: (c.reports || []).map((r) => r.reason).filter(Boolean).slice(0, 6),
+      createdAt: c.createdAt,
+      news: c.news ? { _id: c.news._id, title: c.news.title } : null,
+    }))
+  );
+}));
+
+router.patch('/comments/:id/hide', wrap(async (req, res) => {
+  const comment = await NewsComment.findById(req.params.id);
+  if (!comment) return res.status(404).json({ error: 'Not found' });
+
+  comment.status = 'hidden';
+  comment.reviewedAt = new Date();
+  await comment.save();
+
+  await logAction(req.user, 'comment.hide', 'NewsComment', comment._id, comment.authorName);
+  res.json({ ok: true });
+}));
+
+router.patch('/comments/:id/restore', wrap(async (req, res) => {
+  const comment = await NewsComment.findById(req.params.id);
+  if (!comment) return res.status(404).json({ error: 'Not found' });
+
+  comment.status = 'visible';
+  comment.reviewedAt = new Date();
+  await comment.save();
+
+  await logAction(req.user, 'comment.restore', 'NewsComment', comment._id, comment.authorName);
+  res.json({ ok: true });
+}));
+
+router.patch('/comments/:id/remove', wrap(async (req, res) => {
+  const comment = await NewsComment.findById(req.params.id);
+  if (!comment) return res.status(404).json({ error: 'Not found' });
+
+  comment.status = 'removed';
+  comment.reviewedAt = new Date();
+  await comment.save();
+
+  await logAction(req.user, 'comment.remove', 'NewsComment', comment._id, comment.authorName);
+  res.json({ ok: true });
 }));
 
 router.get('/logs', wrap(async (req, res) => {
