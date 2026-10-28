@@ -62,6 +62,13 @@ const userSchema = new mongoose.Schema(
       failedLogins: { type: Number, default: 0 },
       lockUntil: { type: Date },
     },
+    emailChange: {
+      email: { type: String },
+      otpHash: { type: String },
+      expiresAt: { type: Date },
+      attempts: { type: Number, default: 0 },
+      requestedAt: { type: Date },
+    },
      reset: {
       otpHash: { type: String },
       expiresAt: { type: Date },
@@ -77,6 +84,7 @@ userSchema.methods.toPublic = function () {
   delete obj.passwordHash;
   delete obj.reset;
   delete obj.security;
+  delete obj.emailChange;
   delete obj.__v;
   return obj;
 };

@@ -173,6 +173,10 @@ router.get('/receipts/:receiptNo', wrap(async (req, res) => {
     rejectionReason: d.rejectionReason,
     createdAt: d.createdAt,
     confirmedAt: d.confirmedAt,
+    dispute:
+      d.dispute && d.dispute.status && d.dispute.status !== 'none'
+        ? { status: d.dispute.status, reason: d.dispute.reason, message: d.dispute.message, response: d.dispute.response, openedAt: d.dispute.openedAt, handledAt: d.dispute.handledAt }
+        : null,
     campaign: {
       _id: d.campaign._id,
       title: d.campaign.title,
@@ -394,6 +398,10 @@ router.get('/campaigns/:id/manage', requireAuth, wrap(async (req, res) => {
       createdAt: d.createdAt,
       confirmedAt: d.confirmedAt,
       byOwner: Boolean(d.donor) && String(d.donor) === String(campaign.owner),
+            dispute:
+        d.dispute && d.dispute.status && d.dispute.status !== 'none'
+          ? { status: d.dispute.status, reason: d.dispute.reason, message: d.dispute.message, openedAt: d.dispute.openedAt, response: d.dispute.response }
+          : undefined,
     }))
   );
 }));
@@ -540,6 +548,97 @@ router.post('/campaigns/:id/flag', wrap(async (req, res) => {
     campaign.flags.push({ ipHash: hash, reason: text(req.body && req.body.reason, 200) });
     await campaign.save();
   }
+  res.json({ ok: true });
+}));
+
+router.post('/receipts/:receiptNo/dispute', wrap(async (req, res) => {
+  const no = text(req.params.receiptNo, 30).toUpperCase();
+  if (!/^DON-[A-F0-9]{12}$/.test(no)) return res.status(404).json({ error: 'Not found' });
+
+  const donation = await Donation.findOne({ receiptNo: no });
+  if (!donation) return res.status(404).json({ error: 'Not found' });
+  if (donation.status === 'refunded') return res.status(400).json({ error: 'This donation was already refunded' });
+  if (donation.dispute && donation.dispute.status === 'open') {
+    return res.status(409).json({ error: 'You already have an open complaint for this donation' });
+  }
+
+  const b = req.body || {};
+  const reason = ['not_confirmed', 'wrong_amount', 'refund', 'other'].includes(b.reason) ? b.reason : 'other';
+  const message = text(b.message, 500);
+  if (message.length < 10) return res.status(400).json({ error: 'Tell us what went wrong, in at least 10 characters' });
+
+  donation.dispute = { status: 'open', reason, message, openedAt: new Date() };
+  await donation.save();
+
+  res.json({ ok: true });
+}));
+
+router.patch('/donations/:donationId/dispute', requireAuth, wrap(async (req, res) => {
+  const donation = await Donation.findById(req.params.donationId);
+  if (!donation) return res.status(404).json({ error: 'Not found' });
+
+  const campaign = await Campaign.findById(donation.campaign);
+  if (!campaign || !canManage(campaign, req.user)) return res.status(403).json({ error: 'You cannot manage this campaign' });
+  if (!donation.dispute || donation.dispute.status !== 'open') {
+    return res.status(400).json({ error: 'There is no open complaint for this donation' });
+  }
+
+  const b = req.body || {};
+  const action = text(b.action, 10);
+  const response = text(b.response, 500);
+  if (!['confirm', 'refund', 'resolve'].includes(action)) return res.status(400).json({ error: 'Choose what to do' });
+  if (response.length < 3) return res.status(400).json({ error: 'Write a short answer for the donor' });
+
+  const wasConfirmed = donation.status === 'confirmed';
+
+  if (action === 'refund') {
+    const ref = text(b.refundRef, 60);
+    if (ref.length < 4) return res.status(400).json({ error: 'Enter the transaction ID or a note of the money you sent back' });
+    if (wasConfirmed && campaign.spent > campaign.raised - donation.amount) {
+      return res.status(400).json({
+        error: `This money was already spent on bills (৳${campaign.spent.toLocaleString('en-IN')}), so a refund would break the ledger. Ask an admin for help.`,
+      });
+    }
+
+    donation.status = 'refunded';
+    donation.dispute.status = 'refunded';
+    donation.dispute.refundRef = ref;
+  } else if (action === 'confirm') {
+    if (!VISIBLE.includes(campaign.status)) return res.status(400).json({ error: 'This campaign is not open' });
+    if (donation.status === 'refunded') return res.status(400).json({ error: 'This donation was refunded' });
+    if (donation.donor && String(donation.donor) === String(campaign.owner) && !isAdminUser(req.user)) {
+      return res.status(403).json({ error: 'A donation made by the campaign owner must be confirmed by an admin' });
+    }
+
+    donation.status = 'confirmed';
+    donation.confirmedAt = new Date();
+    donation.confirmedBy = req.user._id;
+    donation.dispute.status = 'resolved';
+  } else {
+    donation.dispute.status = 'resolved';
+  }
+
+  donation.dispute.response = response;
+  donation.dispute.handledAt = new Date();
+  donation.dispute.handledBy = req.user._id;
+  await donation.save();
+
+  let updated = null;
+  if (wasConfirmed || action === 'confirm') updated = await recompute(campaign._id);
+
+  if (action === 'confirm') {
+    try {
+      await sendReceiptEmail(updated || campaign, donation);
+      await withTimeout(pushDonationConfirmed(updated || campaign, donation), 3000);
+    } catch (err) {
+      console.error('confirm notice failed:', err.message);
+    }
+  }
+
+  if (isAdminUser(req.user)) {
+    await logAction(req.user, `dispute.${action}`, 'Donation', donation._id, `${donation.amount} to ${campaign.title}`);
+  }
+
   res.json({ ok: true });
 }));
 

@@ -21,6 +21,7 @@ const NewsComment = require('../models/NewsComment');
 const NewsReaction = require('../models/NewsReaction');
 const { findSimilar } = require('../utils/newsSimilarity');
 const { applyCounts } = require('../utils/newsUpdates');
+const Donation = require('../models/Donation');
 
 
 router.use(requireAuth, requireRole('admin'));
@@ -54,6 +55,7 @@ router.get('/stats', wrap(async (req, res) => {
     flaggedCampaigns,
     activeSos,
     reportedComments,
+    openDisputes,
     users,
   ] = await Promise.all([
     AccidentReport.countDocuments({ status: 'pending' }),
@@ -66,6 +68,7 @@ router.get('/stats', wrap(async (req, res) => {
     Campaign.countDocuments({ status: { $in: ['active', 'completed'] }, 'flags.0': { $exists: true } }),
     SosAlert.countDocuments({ status: 'active', createdAt: { $gte: activeSince() } }),
     NewsComment.countDocuments({ status: { $in: ['visible', 'hidden'] }, reportCount: { $gt: 0 }, reviewedAt: null }),
+    Donation.countDocuments({ 'dispute.status': 'open' }),
     User.countDocuments(),
   ]);
 
@@ -79,6 +82,7 @@ router.get('/stats', wrap(async (req, res) => {
     flaggedCampaigns,
     activeSos,
     reportedComments,
+    openDisputes,
     users,
   });
 }));
@@ -662,6 +666,35 @@ router.patch('/comments/:id/remove', wrap(async (req, res) => {
 
   await logAction(req.user, 'comment.remove', 'NewsComment', comment._id, comment.authorName);
   res.json({ ok: true });
+}));
+
+router.get('/disputes', wrap(async (req, res) => {
+  const filter =
+    req.query.status === 'closed'
+      ? { 'dispute.status': { $in: ['resolved', 'refunded'] } }
+      : { 'dispute.status': 'open' };
+
+  const rows = await Donation.find(filter)
+    .populate('campaign', 'title ownerName')
+    .sort({ 'dispute.openedAt': -1 })
+    .limit(100)
+    .lean();
+
+  res.json(
+    rows.map((d) => ({
+      _id: d._id,
+      receiptNo: d.receiptNo,
+      amount: d.amount,
+      method: d.method,
+      trxId: d.trxId,
+      status: d.status,
+      donorName: d.donorName,
+      donorPhone: d.donorPhone,
+      donorEmail: d.donorEmail,
+      dispute: d.dispute,
+      campaign: d.campaign ? { _id: d.campaign._id, title: d.campaign.title, ownerName: d.campaign.ownerName } : null,
+    }))
+  );
 }));
 
 router.get('/logs', wrap(async (req, res) => {

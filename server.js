@@ -30,6 +30,7 @@ const notificationRoutes = require('./routes/notifications');
 const adminAnalyticsRoutes = require('./routes/adminAnalytics');
 const adminRoutes = require('./routes/admin');
 const engageRoutes = require('./routes/engage');
+const planRoutes = require('./routes/plans');
 
 const app = express();
 app.set('trust proxy', 1);
@@ -58,6 +59,9 @@ app.post('/api/accidents/:caseId/flag', limits.flag);
 app.post('/api/donate/campaigns/:id/flag', limits.flag);
 app.post('/api/notifications/subscribe', limits.push);
 app.post('/api/notifications/test', limits.push);
+app.post('/api/profile/email/request', limits.forgot);
+app.post('/api/profile/email/verify', limits.forgot);
+app.post('/api/donate/receipts/:receiptNo/dispute', limits.flag);
 app.post('/api/engage/news/:newsId/comments', limits.flag);
 app.post('/api/engage/comments/:id/report', limits.flag);
 
@@ -74,6 +78,7 @@ app.use('/api/blood', bloodRoutes);
 app.use('/api/donate', donateRoutes);
 app.use('/api/sos', sosRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/plans', planRoutes);
 app.use('/api/admin/analytics', adminAnalyticsRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api', uploadRoutes);

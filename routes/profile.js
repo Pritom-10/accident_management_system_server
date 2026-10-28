@@ -166,10 +166,12 @@ router.delete('/', async (req, res) => {
           address: 1,
           emergencyContact: 1,
           reset: 1,
+          emailChange: 1,
           'donor.dateOfBirth': 1,
           'donor.weightKg': 1,
           'donor.lastDonationDate': 1,
           'donor.contactPhone': 1,
+           
         },
         $inc: { 'security.tokenVersion': 1 },
       }
