@@ -9,6 +9,7 @@ const Campaign = require('../models/Campaign');
 const Donation = require('../models/Donation');
 const SosAlert = require('../models/SosAlert');
 const NewsPost = require('../models/NewsPost');
+const { sendMail } = require('../utils/mailer');
 const PushSubscription = require('../models/PushSubscription');
 const { requireAuth } = require('../middleware/auth');
 const { normalizeBdNumber } = require('../utils/phone');
@@ -175,6 +176,88 @@ router.delete('/', async (req, res) => {
     );
 
     res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+router.post('/email/request', async (req, res) => {
+  try {
+    const { email, password } = req.body || {};
+    const next = str(email, 120).toLowerCase();
+    const user = req.user;
+
+    if (!EMAIL_RE.test(next)) return res.status(400).json({ error: 'Enter a valid email address' });
+    if (typeof password !== 'string' || !(await bcrypt.compare(password, user.passwordHash))) {
+      return res.status(400).json({ error: 'Your password is wrong' });
+    }
+    if (next === user.email && user.emailVerified) {
+      return res.status(400).json({ error: 'This email is already confirmed' });
+    }
+    if (await User.exists({ email: next, _id: { $ne: user._id } })) {
+      return res.status(409).json({ error: 'This email is already used by another account' });
+    }
+
+    const last = user.emailChange && user.emailChange.requestedAt;
+    if (last && Date.now() - new Date(last).getTime() < 60 * 1000) {
+      return res.status(429).json({ error: 'Please wait a minute before asking for a new code' });
+    }
+
+    const otp = String(crypto.randomInt(100000, 1000000));
+    user.emailChange = {
+      email: next,
+      otpHash: await bcrypt.hash(otp, 8),
+      expiresAt: new Date(Date.now() + 10 * 60 * 1000),
+      attempts: 0,
+      requestedAt: new Date(),
+    };
+    await user.save();
+
+    await sendMail({
+      to: next,
+      subject: 'Confirm your email for Sahayota',
+      text: `Your code is ${otp}\n\nIt works for 10 minutes. If you did not ask for this, ignore this email.`,
+      html: `<p>Your Sahayota confirmation code is:</p><p style="font-size:28px;font-weight:700;letter-spacing:6px">${otp}</p><p>It works for 10 minutes. If you did not ask for this, ignore this email.</p>`,
+    });
+
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('email request failed:', err.message);
+    res.status(500).json({ error: 'Could not send the code. Please try again later.' });
+  }
+});
+
+router.post('/email/verify', async (req, res) => {
+  try {
+    const code = str(req.body && req.body.code, 10);
+    const user = req.user;
+    const change = user.emailChange;
+    const bad = { error: 'The code is wrong or has expired' };
+
+    if (!change || !change.otpHash || !change.expiresAt || change.expiresAt < new Date() || (change.attempts || 0) >= 5) {
+      return res.status(400).json(bad);
+    }
+    if (!/^\d{6}$/.test(code)) return res.status(400).json(bad);
+
+    if (!(await bcrypt.compare(code, change.otpHash))) {
+      user.emailChange.attempts = (change.attempts || 0) + 1;
+      await user.save();
+      return res.status(400).json(bad);
+    }
+
+    try {
+      user.email = change.email;
+      user.emailVerified = true;
+      user.emailChange = undefined;
+      await user.save();
+    } catch (err) {
+      if (err.code === 11000) return res.status(409).json({ error: 'This email is already used by another account' });
+      throw err;
+    }
+
+    res.json({ user: user.toPublic() });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
