@@ -22,6 +22,8 @@ const NewsReaction = require('../models/NewsReaction');
 const { findSimilar } = require('../utils/newsSimilarity');
 const { applyCounts } = require('../utils/newsUpdates');
 const Donation = require('../models/Donation');
+const Hospital = require('../models/Hospital');
+const HospitalAdmission = require('../models/HospitalAdmission');
 
 
 router.use(requireAuth, requireRole('admin'));
@@ -695,6 +697,137 @@ router.get('/disputes', wrap(async (req, res) => {
       campaign: d.campaign ? { _id: d.campaign._id, title: d.campaign.title, ownerName: d.campaign.ownerName } : null,
     }))
   );
+}));
+
+const HOSPITAL_TYPES = ['hospital', 'blood_bank', 'ambulance', 'fire_service', 'police', 'other'];
+
+function readHospital(b = {}) {
+  const name = str(b.name, 120);
+  if (name.length < 3) return { error: 'Enter the name' };
+  if (!HOSPITAL_TYPES.includes(b.type)) return { error: 'Choose a type' };
+
+  const phone = str(b.phone, 30);
+  if (phone.length < 3) return { error: 'Enter a phone number' };
+
+  const division = str(b.division, 50);
+  const district = str(b.district, 50);
+  if (!division || !district) return { error: 'Choose a division and a district' };
+
+  const address = str(b.address, 200);
+  if (address.length < 3) return { error: 'Enter the address' };
+
+  return { data: { name, type: b.type, phone, division, district, address } };
+}
+
+async function trimManagerRoles(userIds) {
+  for (const id of userIds) {
+    if (await Hospital.exists({ managers: id })) continue;
+    await User.updateOne({ _id: id }, { $pull: { roles: { $in: ['hospital', 'bloodbank'] } } });
+  }
+}
+
+router.get('/hospitals', wrap(async (req, res) => {
+  const q = str(req.query.q, 60);
+  const filter = {};
+  if (q) {
+    const re = new RegExp(escapeRegex(q), 'i');
+    filter.$or = [{ name: re }, { district: re }, { address: re }];
+  }
+
+  const list = await Hospital.find(filter)
+    .populate('managers', 'name email')
+    .sort({ isPinned: -1, name: 1 })
+    .limit(300)
+    .lean();
+
+  res.json(
+    list.map((h) => ({
+      _id: h._id,
+      name: h.name,
+      type: h.type,
+      address: h.address,
+      phone: h.phone,
+      division: h.division,
+      district: h.district,
+      isPinned: h.isPinned,
+      updatedAt: h.statusUpdatedAt || null,
+      managers: (h.managers || []).map((m) => ({ _id: m._id, name: m.name, email: m.email })),
+    }))
+  );
+}));
+
+router.post('/hospitals', wrap(async (req, res) => {
+  const { data, error } = readHospital(req.body);
+  if (error) return res.status(400).json({ error });
+
+  const hospital = await Hospital.create(data);
+  await logAction(req.user, 'hospital.create', 'Hospital', hospital._id, hospital.name);
+  res.status(201).json({ id: hospital._id });
+}));
+
+router.put('/hospitals/:id', wrap(async (req, res) => {
+  const { data, error } = readHospital(req.body);
+  if (error) return res.status(400).json({ error });
+
+  const hospital = await Hospital.findById(req.params.id);
+  if (!hospital) return res.status(404).json({ error: 'Not found' });
+
+  Object.assign(hospital, data);
+  await hospital.save();
+
+  await logAction(req.user, 'hospital.update', 'Hospital', hospital._id, hospital.name);
+  res.json({ ok: true });
+}));
+
+router.delete('/hospitals/:id', wrap(async (req, res) => {
+  const hospital = await Hospital.findById(req.params.id);
+  if (!hospital) return res.status(404).json({ error: 'Not found' });
+  if (hospital.isPinned) return res.status(400).json({ error: 'The national emergency number cannot be deleted' });
+
+  const [admissions, patients] = await Promise.all([
+    HospitalAdmission.countDocuments({ hospital: hospital._id }),
+    UnidentifiedPatient.countDocuments({ admittingHospital: hospital._id }),
+  ]);
+  if (admissions + patients > 0) {
+    return res.status(400).json({ error: 'This place has patient records, so it cannot be deleted. Keep it listed.' });
+  }
+
+  const managers = hospital.managers.slice();
+  await hospital.deleteOne();
+  await trimManagerRoles(managers);
+
+  await logAction(req.user, 'hospital.delete', 'Hospital', hospital._id, hospital.name);
+  res.json({ ok: true });
+}));
+
+router.patch('/hospitals/:id/managers', wrap(async (req, res) => {
+  const hospital = await Hospital.findById(req.params.id);
+  if (!hospital) return res.status(404).json({ error: 'Not found' });
+
+  const action = req.body?.action;
+  if (!['add', 'remove'].includes(action)) return res.status(400).json({ error: 'Invalid action' });
+
+  const email = str(req.body?.email, 120).toLowerCase();
+  const user = email ? await User.findOne({ email }) : null;
+  if (!user) return res.status(404).json({ error: 'No account was found with this email' });
+
+  if (action === 'add') {
+    if (user.isBlocked) return res.status(400).json({ error: 'This account is blocked' });
+
+    hospital.managers.addToSet(user._id);
+    const role = hospital.type === 'blood_bank' ? 'bloodbank' : 'hospital';
+    if (!user.roles.includes(role)) user.roles.push(role);
+
+    await hospital.save();
+    await user.save();
+  } else {
+    hospital.managers.pull(user._id);
+    await hospital.save();
+    await trimManagerRoles([user._id]);
+  }
+
+  await logAction(req.user, `hospital.manager-${action}`, 'Hospital', hospital._id, `${hospital.name}: ${user.name}`);
+  res.json({ ok: true });
 }));
 
 router.get('/logs', wrap(async (req, res) => {
