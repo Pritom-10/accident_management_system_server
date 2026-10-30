@@ -62,6 +62,24 @@ const userSchema = new mongoose.Schema(
       failedLogins: { type: Number, default: 0 },
       lockUntil: { type: Date },
     },
+      medicalId: {
+      enabled: { type: Boolean, default: false },
+      token: { type: String, index: true },
+      allergies: { type: String, maxlength: 300 },
+      conditions: { type: String, maxlength: 300 },
+      medications: { type: String, maxlength: 300 },
+      notes: { type: String, maxlength: 300 },
+      showPhone: { type: Boolean, default: true },
+    },
+
+    verification: {
+      status: { type: String, enum: ['none', 'pending', 'approved', 'rejected'], default: 'none' },
+      docType: { type: String, enum: ['nid', 'license', 'passport', 'student'] },
+      images: [{ type: String }],
+      submittedAt: { type: Date },
+      reviewedAt: { type: Date },
+      reason: { type: String, maxlength: 200 },
+    },
     emailChange: {
       email: { type: String },
       otpHash: { type: String },
@@ -84,6 +102,10 @@ userSchema.methods.toPublic = function () {
   delete obj.passwordHash;
   delete obj.reset;
   delete obj.security;
+  obj.verified = Boolean(obj.verification && obj.verification.status === 'approved');
+  obj.verificationStatus = (obj.verification && obj.verification.status) || 'none';
+  delete obj.verification;
+  delete obj.medicalId;
   delete obj.emailChange;
   delete obj.__v;
   return obj;
