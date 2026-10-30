@@ -42,6 +42,8 @@ const planRoutes = require("./routes/plans");
 const hospitalStaffRoutes = require("./routes/hospitalStaff");
 const medicalIdRoutes = require("./routes/medicalId");
 const verificationRoutes = require("./routes/verification");
+const helpOrgRoutes = require("./routes/helpOrgs");
+const rewardsRoutes = require("./routes/rewards");
 
 const app = express();
 app.set("trust proxy", 1);
@@ -84,6 +86,8 @@ app.use("/api/auth", passwordRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/accidents", accidentRoutes);
 app.use("/api/hospitals", hospitalRoutes);
+app.use("/api/rewards", rewardsRoutes);
+app.use("/api/help-orgs", helpOrgRoutes);
 app.use("/api/medical-id", medicalIdRoutes);
 app.use("/api/verification", verificationRoutes);
 app.use("/api/hospital-staff", hospitalStaffRoutes);

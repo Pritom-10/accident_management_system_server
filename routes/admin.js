@@ -25,6 +25,7 @@ const Donation = require("../models/Donation");
 const Hospital = require("../models/Hospital");
 const HospitalAdmission = require("../models/HospitalAdmission");
 const Image = require("../models/Image");
+const HelpOrg = require("../models/HelpOrg");
 
 router.use(requireAuth, requireRole("admin"));
 
@@ -1341,6 +1342,79 @@ router.patch(
 router.patch(
   "/verifications/:id/reject",
   wrap((req, res) => decideVerification(req, res, false)),
+);
+
+const HELP_CATS = ["legal", "counseling", "rehab", "other"];
+
+function readOrg(b = {}) {
+  const name = str(b.name, 120);
+  if (name.length < 3) return { error: "Enter the name" };
+  if (!HELP_CATS.includes(b.category)) return { error: "Choose a type" };
+
+  const phone = str(b.phone, 30);
+  if (phone.length < 3) return { error: "Enter a phone number" };
+
+  const website = str(b.website, 200);
+  if (website && !/^https?:\/\//i.test(website))
+    return { error: "The website must start with http:// or https://" };
+
+  return {
+    data: {
+      name,
+      category: b.category,
+      description: str(b.description, 400),
+      phone,
+      website: website || undefined,
+      address: str(b.address, 200),
+      division: str(b.division, 50) || "All",
+      district: str(b.district, 50) || "All",
+      free: b.free !== false,
+      active: b.active !== false,
+      verifiedAt: new Date(),
+    },
+  };
+}
+
+router.get(
+  "/help-orgs",
+  wrap(async (req, res) => {
+    res.json(await HelpOrg.find().sort({ createdAt: -1 }).limit(300).lean());
+  }),
+);
+
+router.post(
+  "/help-orgs",
+  wrap(async (req, res) => {
+    const { data, error } = readOrg(req.body);
+    if (error) return res.status(400).json({ error });
+    const org = await HelpOrg.create(data);
+    await logAction(req.user, "helporg.create", "HelpOrg", org._id, org.name);
+    res.status(201).json({ id: org._id });
+  }),
+);
+
+router.put(
+  "/help-orgs/:id",
+  wrap(async (req, res) => {
+    const { data, error } = readOrg(req.body);
+    if (error) return res.status(400).json({ error });
+    const org = await HelpOrg.findByIdAndUpdate(req.params.id, data, {
+      new: true,
+    });
+    if (!org) return res.status(404).json({ error: "Not found" });
+    await logAction(req.user, "helporg.update", "HelpOrg", org._id, org.name);
+    res.json({ ok: true });
+  }),
+);
+
+router.delete(
+  "/help-orgs/:id",
+  wrap(async (req, res) => {
+    const org = await HelpOrg.findByIdAndDelete(req.params.id);
+    if (!org) return res.status(404).json({ error: "Not found" });
+    await logAction(req.user, "helporg.delete", "HelpOrg", org._id, org.name);
+    res.json({ ok: true });
+  }),
 );
 
 router.get(

@@ -57,11 +57,9 @@ router.put("/", async (req, res) => {
     if (ecPhoneRaw) {
       ecPhone = normalizeBdNumber(ecPhoneRaw);
       if (!ecPhone)
-        return res
-          .status(400)
-          .json({
-            error: "Enter a valid Bangladeshi number for the emergency contact",
-          });
+        return res.status(400).json({
+          error: "Enter a valid Bangladeshi number for the emergency contact",
+        });
     }
     user.emergencyContact = { name: str(ec.name, 80), phone: ecPhone };
 
@@ -167,12 +165,10 @@ router.delete("/", async (req, res) => {
       return res.status(400).json({ error: "Your password is wrong" });
     }
     if (u.roles.includes("admin")) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "An admin account cannot delete itself. Ask another admin to remove the admin role first.",
-        });
+      return res.status(400).json({
+        error:
+          "An admin account cannot delete itself. Ask another admin to remove the admin role first.",
+      });
     }
 
     const [campaigns, requests] = await Promise.all([
@@ -186,12 +182,10 @@ router.delete("/", async (req, res) => {
       }),
     ]);
     if (campaigns > 0)
-      return res
-        .status(400)
-        .json({
-          error:
-            "Close your campaigns first, so donors can still see where the money went.",
-        });
+      return res.status(400).json({
+        error:
+          "Close your campaigns first, so donors can still see where the money went.",
+      });
     if (requests > 0)
       return res
         .status(400)
@@ -270,6 +264,8 @@ router.delete("/", async (req, res) => {
           "donor.contactPhone": 1,
           medicalId: 1,
           verification: 1,
+          rewards: 1,
+          donorRating: 1,
         },
         $inc: { "security.tokenVersion": 1 },
       },
